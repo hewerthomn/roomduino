@@ -15,6 +15,8 @@
 #include <dht11.h>
 #include <Ethernet.h>
 
+char placename[] = "Room";
+
 /*
 * Ethernet Shield Configs
 */
@@ -23,10 +25,14 @@ byte mac[] = { 0xDE, 0xAD, 0xBA, 0xEF, 0xFE, 0xBA };
 IPAddress ip(10, 1, 1, 25);
 IPAddress gateway(10, 1, 1, 1);
 IPAddress subnet(255, 255, 255, 0);
-IPAddress server(10, 1, 1, 8);
-//  char server[] = "duino.hewertho.mn";
-char apiPath[] = "/roomduino/api/";
-char placename[] = "Room";
+
+//IPAddress server(10, 1, 1, 8);
+//char apiPath[] = "/roomduino/api/";
+char server[] = "roomduino.hewertho.mn";
+char apiPath[] = "/api/";
+
+int failedConnect = 0;
+int failedConnectsRetry = 5;
 
 /* Sensor Temperature */
 #define pinDHT11 9
@@ -39,30 +45,33 @@ int Humidity = 0;
 */
 char Date[] = "Dez, 31";
 char Time[] = "00:00";
+char Debug[80];
 
 boolean hasStats = false; // until this is true default text will be displayed
 
-long updateFrequency = .5 * 60000; // 6000 = 1 minute
+long updateFrequency = 5 * 60000; // 60000 = 1 minute
+
+void(* reset) (void) = 0;
 
 void setup()
 {
   Serial.begin(9600);  
   Serial.println("Starting....");
   
-  Ethernet.begin(mac, ip, gateway, subnet);
+  Ethernet.begin(mac);//, ip, gateway, subnet);
   
-  delay(5000);  
+  delay(3000);  
   Serial.print("IP local: "); Serial.println(Ethernet.localIP());
 }
 
 void loop()
 {
-  Serial.println("");Serial.println("------------------------------------");
-  
+  printVars();
   getTemperature();  
   connectServer();
   
-    delay(updateFrequency);
+  checkFailedsConnect();
+  delay(updateFrequency);
 }
 
 void getTemperature()
@@ -73,8 +82,7 @@ void getTemperature()
   {
     case DHTLIB_OK:
       Temperature = DHT11.temperature;
-      Humidity = DHT11.humidity;      
-      Serial.print("Temperature "); Serial.print(Temperature); Serial.print("  Humidity "); Serial.print(Humidity); Serial.println("%");
+      Humidity = DHT11.humidity;
     break;
     
     case DHTLIB_ERROR_CHECKSUM:
@@ -91,19 +99,30 @@ void getTemperature()
   }
 }
 
-void connectServer()
+void printVars()
 {
-  Serial.print("Conectando....");
+  Serial.println("");Serial.println("------------------------------------");
+  Serial.print("Date "); Serial.print(Date); Serial.print("  Time "); Serial.println(Time);  
+  Serial.print("Temperature "); Serial.print(Temperature); Serial.print("  Humidity "); Serial.print(Humidity); Serial.println("%");  
+  Serial.print("Connects failed: "); Serial.println(failedConnect);
+  Serial.println("");
+}
+
+void connectServer()
+{  
+  Serial.print("Conectando....");  
   int conn = client.connect(server, 80);
   if(conn)
   {
     Serial.println("Ok!");
     delay(500);
     sendTemperature();
-    client.stop();
+    extractData();
+    Serial.println("Done!");
   }
   else
   {
+    failedConnect++;
     Serial.println("Erro!");
     return;
   }
@@ -138,43 +157,51 @@ void sendRequest(char method[], char path[], String params)
   client.println("");
 }
 
-void extractData(EthernetClient client)
+void extractData()
 {
-  char currentValue[16];
+  char currentValue[80];
   boolean dataFlag = false; // true if data has started
   boolean endFlag = false; // true if data is reached
   int j = 0;
   int i = 0;
+  char c;
   
-  Serial.println("Extraindo dados....");
-   
-  while(client.connected() && !endFlag)
+  Serial.print("Extraindo dados...."); 
+  
+  while(client.connected() && !endFlag)  
   {
-    char c = client.read();
-    
-   // Serial.print(c);
-    
-    if( c == '<')
+    if(client.available())
     {
-      dataFlag = true;
-      hasStats = true;      
-    }
-    else if(dataFlag && c == '>') // end of data
-    {
-      setStatValue(j, currentValue);
-      endFlag = true;
-    }
-    else if(dataFlag && c == '|') // next dataset
-    {
-      setStatValue(j++, currentValue);
-      char currentValue[16];
-      i = 0;
-    }
-    else if(dataFlag)
-    {
-      currentValue[i++] = c;
-    }
-  }
+      char c = client.read();    
+      
+      if(c == '<')
+      {
+        dataFlag = true;
+        hasStats = true;      
+        Serial.print("o");
+      }
+      else if(dataFlag && c == '>') // end of data
+      {
+        setStatValue(j, currentValue);
+        endFlag = true;
+        Serial.print("!");
+      }
+      else if(dataFlag && c == '|') // next dataset
+      {
+        setStatValue(j++, currentValue);
+        char currentValue[80];
+        i = 0;
+        Serial.print("o");
+      }
+      else if(dataFlag)
+      {
+        currentValue[i++] = c;
+        Serial.print(".");
+      }
+    }    
+  }  
+  client.stop();  
+  
   Serial.println("Ok!");
 }
 
@@ -196,6 +223,21 @@ void setStatValue(int order, char value[])
         Time[i] = value[i];
       }
       break;
+      
+    case 2: // Debug
+      for(int i=0; i<80; i++) {
+        Debug[i] = value[i];
+      }
+      Serial.print("#DEBUG# "); Serial.println(Debug);
+    break;
   }
 }
-  
+
+void checkFailedsConnect()
+{
+  if(failedConnect == failedConnectsRetry)
+  {
+    Serial.println("# Connect failed reach limit. Will reset now... #");
+    delay(5000); reset();
+  }
+}
