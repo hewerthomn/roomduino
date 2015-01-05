@@ -40,6 +40,10 @@ dht11 DHT11;
 int Temperature = 0;
 int Humidity = 0;
 
+/* Sensor Light */
+#define pinLight 0
+int lightLevel;
+
 /*
 * Variable of contents
 */
@@ -58,7 +62,7 @@ void setup()
   Serial.begin(9600);  
   Serial.println("Starting....");
   
-  Ethernet.begin(mac);//, ip, gateway, subnet);
+  Ethernet.begin(mac); //, ip, gateway, subnet);
   
   delay(3000);  
   Serial.print("IP local: "); Serial.println(Ethernet.localIP());
@@ -67,7 +71,9 @@ void setup()
 void loop()
 {
   printVars();
-  getTemperature();  
+  getTemperature();
+  getLight();
+  
   connectServer();
   
   checkFailedsConnect();
@@ -99,10 +105,16 @@ void getTemperature()
   }
 }
 
+void getLight()
+{
+  lightLevel = analogRead(pinLight);
+}
+
 void printVars()
 {
   Serial.println("");Serial.println("------------------------------------");
-  Serial.print("Date "); Serial.print(Date); Serial.print("  Time "); Serial.println(Time);  
+  Serial.print("Date "); Serial.print(Date); Serial.print("  Time "); Serial.println(Time);
+  Serial.print("Light level: "); Serial.println(lightLevel);
   Serial.print("Temperature "); Serial.print(Temperature); Serial.print("  Humidity "); Serial.print(Humidity); Serial.println("%");  
   Serial.print("Connects failed: "); Serial.println(failedConnect);
   Serial.println("");
@@ -116,8 +128,13 @@ void connectServer()
   {
     Serial.println("Ok!");
     delay(500);
+    
+    sendLight();
+    clearClient();
+    
     sendTemperature();
-    extractData();
+    extractData();    
+    
     Serial.println("Done!");
   }
   else
@@ -139,6 +156,16 @@ void sendTemperature()
   Serial.println("Ok!");
 }
 
+void sendLight()
+{
+  String params = "name=photocell&value=";
+  params = params + lightLevel;
+  
+  Serial.print("Enviando light level...");
+  sendRequest("GET", "sensors", params);
+  Serial.println("Ok!");
+}
+
 void sendRequest(char method[], char path[], String params)
 {
   client.print(method);
@@ -155,6 +182,11 @@ void sendRequest(char method[], char path[], String params)
   client.println("User-Agent: Arduino");
   client.println("Connection: close");
   client.println("");
+}
+
+void clearClient()
+{
+  if(client.available()) client.read();  
 }
 
 void extractData()
